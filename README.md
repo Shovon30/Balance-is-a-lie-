@@ -1,4 +1,5 @@
 Game Name - Balance is a Lie
+Code - https://game-jam-designer--dasshovon644.replit.app (you can play this game through the link)
 A minimalist psychological platformer built for a game jam, inspired by Level Devil and Geometry Dash, designed to make the player experience the theme — not read it.
 
 “Progress always removes something of equal value.”
