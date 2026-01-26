@@ -1,0 +1,1140 @@
+import React, { useEffect, useRef } from 'react';
+
+const EveryMoveCostsSomething = () => {
+  const canvasRef = useRef(null);
+  const gameStateRef = useRef(null);
+  const animationFrameRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    
+    // LOCKED PHYSICS - DO NOT MODIFY
+    const PHYSICS = {
+      GRAVITY: 0.7,
+      JUMP_VELOCITY: 13,
+      MAX_SPEED: 6,
+      DASH_BOOST: 8,
+      AIR_CONTROL: 0.65,
+      COYOTE_TIME: 7,
+      JUMP_BUFFER: 7
+    };
+    
+    const CANVAS_WIDTH = 800;
+    const CANVAS_HEIGHT = 600;
+    
+    // Colors
+    const BLACK = '#000000';
+    const WHITE = '#FFFFFF';
+    const CYAN = '#00FFFF';
+    const CYAN_DIM = '#004444';
+    const RED = '#FF0000';
+    const GOLD = '#FFD700';
+    const GREEN = '#00FF00';
+    const GRAY = '#666666';
+    
+    // Game State
+    const game = {
+      scene: 'coldOpen', // coldOpen, menu, playing, paused, levelComplete, credits
+      currentLevel: 0,
+      maxUnlockedLevel: 0,
+      
+      player: {
+        x: 100,
+        y: 500,
+        vx: 0,
+        vy: 0,
+        width: 24,
+        height: 24,
+        grounded: false,
+        alive: true,
+        form: 'circle', // circle, triangle, square
+        coyoteTimer: 0,
+        jumpBufferTimer: 0
+      },
+      
+      // PER-LEVEL COSTS (CRITICAL: Reset each level)
+      costs: {
+        gravity: 1.0,
+        horizontalControl: 1.0,
+        jumps: 0,
+        dashes: 0,
+        formSwitches: 0,
+        idleTime: 0
+      },
+      
+      levelState: {
+        complete: false,
+        doorClosing: 0,
+        doorPulling: false,
+        platformsShrunk: 0,
+        spikesSpawned: 0,
+        ceilingHeight: 0
+      },
+      
+      // UI
+      menuSelection: 0,
+      pauseSelection: 0,
+      frameCount: 0,
+      coldOpenTimer: 0,
+      levelStartTime: 0,
+      
+      // Input
+      keys: {},
+      
+      // Effects
+      particles: [],
+      cameraShake: 0,
+      screenFlash: 0,
+      ghostTrail: []
+    };
+    
+    gameStateRef.current = game;
+    
+    // Particle class
+    class Particle {
+      constructor(x, y, color, vx, vy, life, size = 2) {
+        this.x = x;
+        this.y = y;
+        this.color = color;
+        this.vx = vx;
+        this.vy = vy;
+        this.life = life;
+        this.maxLife = life;
+        this.size = size;
+      }
+      
+      update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vy += 0.2;
+        this.life--;
+      }
+      
+      draw(ctx) {
+        const alpha = this.life / this.maxLife;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x - this.size/2, this.y - this.size/2, this.size, this.size);
+        ctx.globalAlpha = 1;
+      }
+    }
+    
+    function createParticles(x, y, color, count, speed = 2) {
+      for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 * i) / count + Math.random() * 0.3;
+        game.particles.push(new Particle(
+          x, y, color,
+          Math.cos(angle) * (speed + Math.random()),
+          Math.sin(angle) * (speed + Math.random()) - 1,
+          20 + Math.random() * 15
+        ));
+      }
+    }
+    
+    // LEVEL DEFINITIONS - Systematic Design
+    const levels = [
+      {
+        name: "THE CHOICE ALREADY COSTS",
+        subtitle: "You start in debt",
+        startX: 100,
+        startY: 500,
+        platforms: [
+          { x: 50, y: 550, w: 180, h: 40 },
+          { x: 390, y: 538, w: 200, h: 40 }
+        ],
+        spikes: [
+          { x: 260, y: 600 }, { x: 280, y: 600 }, { x: 300, y: 600 }
+        ],
+        door: { x: 540, y: 478, w: 40, h: 60 },
+        doorLogic: 'formSwitchRequired',
+        minFormSwitches: 2,
+        bgColor: '#000000'
+      },
+      
+      {
+        name: "MOMENTUM LIES",
+        subtitle: "Speed betrays you",
+        startX: 80,
+        startY: 500,
+        platforms: [
+          { x: 40, y: 550, w: 160, h: 40 },
+          { x: 340, y: 550, w: 140, h: 40 },
+          { x: 645, y: 550, w: 120, h: 40 }
+        ],
+        spikes: [
+          { x: 220, y: 600 }, { x: 240, y: 600 },
+          { x: 500, y: 600 }, { x: 520, y: 600 }
+        ],
+        door: { x: 710, y: 490, w: 40, h: 60 },
+        doorLogic: 'dashPenalty',
+        dashPenalty: 40,
+        baseDoorX: 710,
+        bgColor: '#000000'
+      },
+      
+      {
+        name: "VERTICAL DEBT",
+        subtitle: "Height has consequences",
+        startX: 100,
+        startY: 500,
+        platforms: [
+          { x: 60, y: 550, w: 160, h: 40 },
+          { x: 320, y: 480, w: 140, h: 30 },
+          { x: 560, y: 390, w: 180, h: 40 }
+        ],
+        spikes: [
+          { x: 20, y: 300 }, { x: 20, y: 340 }, { x: 20, y: 380 }
+        ],
+        door: { x: 680, y: 330, w: 40, h: 60 },
+        doorLogic: 'highJumpPenalty',
+        bgColor: '#050000'
+      },
+      
+      {
+        name: "THE DOOR NOTICES",
+        subtitle: "The goal reacts",
+        startX: 100,
+        startY: 500,
+        platforms: [
+          { x: 50, y: 550, w: 200, h: 40 },
+          { x: 650, y: 550, w: 120, h: 40 }
+        ],
+        movingPlatforms: [
+          { x: 300, y: 480, w: 100, h: 20, xMin: 300, xMax: 450, speed: 1.5, dir: 1 }
+        ],
+        spikes: [
+          { x: 40, y: 600 }, { x: 60, y: 600 },
+          { x: 740, y: 600 }, { x: 760, y: 600 }
+        ],
+        door: { x: 710, y: 490, w: 40, h: 60 },
+        doorLogic: 'reactive',
+        dashPenalty: 25,
+        idleReward: 10,
+        baseDoorX: 710,
+        bgColor: '#000000'
+      },
+      
+      {
+        name: "INHERITED MISTAKES",
+        subtitle: "Past actions haunt you",
+        startX: 80,
+        startY: 500,
+        platforms: [
+          { x: 40, y: 550, w: 140, h: 40 },
+          { x: 210, y: 550, w: 130, h: 40 },
+          { x: 395, y: 550, w: 125, h: 40 },
+          { x: 580, y: 550, w: 180, h: 40 }
+        ],
+        spikes: [
+          { x: 190, y: 600 }, { x: 370, y: 600 }, { x: 560, y: 600 }
+        ],
+        door: { x: 700, y: 490, w: 40, h: 60 },
+        doorLogic: 'shrinkingPlatforms',
+        startGravity: 1.4,
+        platformShrink: 8,
+        bgColor: '#000505'
+      },
+      
+      {
+        name: "FALSE FREEDOM",
+        subtitle: "Everything available — but harmful",
+        startX: 100,
+        startY: 500,
+        platforms: [
+          { x: 50, y: 550, w: 280, h: 40 },
+          { x: 500, y: 550, w: 260, h: 40 }
+        ],
+        spikes: [],
+        door: { x: 700, y: 490, w: 40, h: 60 },
+        doorLogic: 'jumpLimit',
+        maxJumps: 3,
+        bgColor: '#000000'
+      },
+      
+      {
+        name: "NOTHING EXTRA",
+        subtitle: "Minimalism",
+        startX: 100,
+        startY: 500,
+        platforms: [
+          { x: 50, y: 550, w: 700, h: 40 }
+        ],
+        spikes: [],
+        door: { x: 700, y: 490, w: 40, h: 60 },
+        doorLogic: 'ceiling',
+        ceilingStart: 250,
+        bgColor: '#050505'
+      },
+      
+      {
+        name: "ACCEPTANCE",
+        subtitle: "You already paid",
+        startX: 100,
+        startY: 500,
+        platforms: [
+          { x: 0, y: 550, w: 800, h: 40 }
+        ],
+        spikes: [],
+        door: { x: 700, y: 490, w: 40, h: 60 },
+        doorLogic: 'exact',
+        exactJumps: 2,
+        exactFormSwitches: 1,
+        bgColor: '#000000'
+      }
+    ];
+    
+    // Load level with COMPLETE reset
+    function loadLevel(levelIndex) {
+      const level = levels[levelIndex];
+      
+      game.player.x = level.startX;
+      game.player.y = level.startY;
+      game.player.vx = 0;
+      game.player.vy = 0;
+      game.player.alive = true;
+      game.player.grounded = false;
+      game.player.coyoteTimer = 0;
+      game.player.jumpBufferTimer = 0;
+      
+      // CRITICAL: Reset all costs
+      game.costs = {
+        gravity: level.startGravity || 1.0,
+        horizontalControl: 1.0,
+        jumps: 0,
+        dashes: 0,
+        formSwitches: 0,
+        idleTime: 0
+      };
+      
+      game.levelState = {
+        complete: false,
+        doorClosing: 0,
+        doorPulling: false,
+        platformsShrunk: 0,
+        spikesSpawned: 0,
+        ceilingHeight: level.ceilingStart || 0
+      };
+      
+      game.levelStartTime = Date.now();
+      game.cameraShake = 0;
+      game.ghostTrail = [];
+      
+      // Reset door position
+      if (level.baseDoorX) {
+        level.door.x = level.baseDoorX;
+      }
+      
+      // Reset moving platforms
+      level.movingPlatforms?.forEach(p => {
+        p.x = p.xMin;
+        p.dir = 1;
+      });
+    }
+    
+    // Input handling
+    function handleKeyDown(e) {
+      // Prevent space bar scrolling
+      if (e.key === ' ') {
+        e.preventDefault();
+      }
+      
+      game.keys[e.key] = true;
+      
+      // Cold open skip
+      if (game.scene === 'coldOpen' && (e.key === 'Enter' || e.key === ' ')) {
+        game.scene = 'menu';
+        return;
+      }
+      
+      // Pause toggle
+      if (game.scene === 'playing' && e.key === 'Escape') {
+        game.scene = 'paused';
+        game.pauseSelection = 0;
+        return;
+      }
+      
+      // Pause menu
+      if (game.scene === 'paused') {
+        if (e.key === 'ArrowUp' || e.key === 'w') game.pauseSelection = Math.max(0, game.pauseSelection - 1);
+        if (e.key === 'ArrowDown' || e.key === 's') game.pauseSelection = Math.min(2, game.pauseSelection + 1);
+        if (e.key === 'Enter' || e.key === ' ') {
+          if (game.pauseSelection === 0) game.scene = 'playing';
+          else if (game.pauseSelection === 1) {
+            loadLevel(game.currentLevel);
+            game.scene = 'playing';
+          } else {
+            game.scene = 'menu';
+            game.menuSelection = 0;
+          }
+        }
+        if (e.key === 'Escape') game.scene = 'playing';
+        return;
+      }
+      
+      // Menu
+      if (game.scene === 'menu') {
+        if (e.key === 'ArrowUp' || e.key === 'w') game.menuSelection = Math.max(0, game.menuSelection - 1);
+        if (e.key === 'ArrowDown' || e.key === 's') game.menuSelection = Math.min(2, game.menuSelection + 1);
+        if (e.key === 'Enter' || e.key === ' ') {
+          if (game.menuSelection === 0) {
+            game.currentLevel = 0;
+            loadLevel(0);
+            game.scene = 'playing';
+          } else if (game.menuSelection === 1) {
+            // Level select (simplified - just restart first level)
+            game.currentLevel = 0;
+            loadLevel(0);
+            game.scene = 'playing';
+          } else {
+            game.scene = 'credits';
+          }
+        }
+        return;
+      }
+      
+      // Credits
+      if (game.scene === 'credits' && (e.key === 'Escape' || e.key === 'Backspace')) {
+        game.scene = 'menu';
+        return;
+      }
+      
+      // Level complete
+      if (game.scene === 'levelComplete' && (e.key === 'Enter' || e.key === ' ')) {
+        game.currentLevel++;
+        if (game.currentLevel >= levels.length) {
+          game.scene = 'credits';
+        } else {
+          game.maxUnlockedLevel = Math.max(game.maxUnlockedLevel, game.currentLevel);
+          loadLevel(game.currentLevel);
+          game.scene = 'playing';
+        }
+        return;
+      }
+      
+      // Gameplay
+      if (game.scene === 'playing' && game.player.alive && !game.levelState.complete) {
+        // Jump buffer
+        if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'w') {
+          game.player.jumpBufferTimer = PHYSICS.JUMP_BUFFER;
+        }
+        
+        // Form switch
+        if ((e.key === 'Shift' || e.key === 'Tab') && !e.repeat) {
+          e.preventDefault();
+          const forms = ['circle', 'triangle', 'square'];
+          const idx = forms.indexOf(game.player.form);
+          game.player.form = forms[(idx + 1) % 3];
+          game.costs.formSwitches++;
+          
+          // Form switch costs
+          game.costs.gravity += 0.05;
+          
+          createParticles(game.player.x + 12, game.player.y + 12, CYAN, 12, 3);
+          game.screenFlash = 3;
+          
+          // Level 7 special: spawn spike
+          const level = levels[game.currentLevel];
+          if (level.doorLogic === 'ceiling' && game.levelState.spikesSpawned < 3) {
+            const spikeX = 200 + game.levelState.spikesSpawned * 150;
+            level.spikes.push({ x: spikeX, y: 600 });
+            game.levelState.spikesSpawned++;
+          }
+        }
+      }
+    }
+    
+    function handleKeyUp(e) {
+      game.keys[e.key] = false;
+    }
+    
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    
+    // Update loop
+    function update() {
+      game.frameCount++;
+      
+      // Cold open
+      if (game.scene === 'coldOpen') {
+        game.coldOpenTimer++;
+        if (game.coldOpenTimer > 300) game.scene = 'menu';
+        return;
+      }
+      
+      // Particles
+      if (game.particles.length > 150) game.particles = game.particles.slice(-100);
+      for (let i = game.particles.length - 1; i >= 0; i--) {
+        game.particles[i].update();
+        if (game.particles[i].life <= 0) game.particles.splice(i, 1);
+      }
+      
+      // Camera shake
+      if (game.cameraShake > 0) {
+        game.cameraShake *= 0.8;
+        if (game.cameraShake < 0.1) game.cameraShake = 0;
+      }
+      
+      if (game.screenFlash > 0) game.screenFlash--;
+      
+      if (game.scene !== 'playing') return;
+      
+      const level = levels[game.currentLevel];
+      
+      // Door closing sequence
+      if (game.levelState.complete) {
+        game.levelState.doorClosing++;
+        
+        // Pull player into door
+        if (game.levelState.doorClosing < 40) {
+          const doorCenterX = level.door.x + level.door.w/2;
+          const doorCenterY = level.door.y + level.door.h/2;
+          game.player.x += (doorCenterX - 12 - game.player.x) * 0.12;
+          game.player.y += (doorCenterY - 12 - game.player.y) * 0.12;
+          game.player.vx = 0;
+          game.player.vy = 0;
+        }
+        
+        if (game.levelState.doorClosing === 60) {
+          game.scene = 'levelComplete';
+        }
+        return;
+      }
+      
+      if (!game.player.alive) return;
+      
+      // Idle tracking (Level 4)
+      if (Math.abs(game.player.vx) < 0.1 && game.player.grounded) {
+        game.costs.idleTime++;
+        
+        if (level.doorLogic === 'reactive' && game.costs.idleTime > 60) {
+          level.door.x = Math.max(level.baseDoorX, level.door.x - level.idleReward / 60);
+        }
+      } else {
+        game.costs.idleTime = 0;
+      }
+      
+      // Movement
+      const isMovingLeft = game.keys['ArrowLeft'] || game.keys['a'];
+      const isMovingRight = game.keys['ArrowRight'] || game.keys['d'];
+      
+      const baseSpeed = PHYSICS.MAX_SPEED;
+      const controlMult = game.player.grounded ? 1.0 : PHYSICS.AIR_CONTROL;
+      const speed = baseSpeed * controlMult * game.costs.horizontalControl;
+      
+      if (isMovingLeft) {
+        game.player.vx = -speed;
+      } else if (isMovingRight) {
+        game.player.vx = speed;
+      } else if (game.player.grounded) {
+        game.player.vx *= 0.7;
+        if (Math.abs(game.player.vx) < 0.1) game.player.vx = 0;
+      }
+      
+      // Dash (Circle form, hold shift)
+      if (game.player.form === 'circle' && (game.keys['Shift'] || game.keys['shift']) && Math.abs(game.player.vx) > 1) {
+        const dashMult = PHYSICS.DASH_BOOST / PHYSICS.MAX_SPEED;
+        game.player.vx *= dashMult;
+        
+        if (game.frameCount % 5 === 0) {
+          game.costs.dashes++;
+          game.costs.gravity += 0.015;
+          
+          createParticles(game.player.x + 12, game.player.y + 12, CYAN, 4, 1.5);
+          
+          // Door penalties
+          if (level.doorLogic === 'dashPenalty' || level.doorLogic === 'reactive') {
+            level.door.x += level.dashPenalty;
+          }
+          
+          // Level 7: increase trap speed
+          if (level.doorLogic === 'ceiling') {
+            // Handled in ceiling logic
+          }
+        }
+      }
+      
+      // Gravity
+      const effectiveGravity = PHYSICS.GRAVITY * game.costs.gravity;
+      game.player.vy += effectiveGravity;
+      if (game.player.vy > 20) game.player.vy = 20;
+      
+      // Coyote time
+      if (game.player.grounded) {
+        game.player.coyoteTimer = PHYSICS.COYOTE_TIME;
+      } else if (game.player.coyoteTimer > 0) {
+        game.player.coyoteTimer--;
+      }
+      
+      // Jump buffer
+      if (game.player.jumpBufferTimer > 0) {
+        game.player.jumpBufferTimer--;
+        
+        if (game.player.coyoteTimer > 0) {
+          // Execute jump with physics compensation
+          const baseJump = game.player.form === 'triangle' ? PHYSICS.JUMP_VELOCITY * 1.23 : PHYSICS.JUMP_VELOCITY;
+          const compensatedJump = baseJump / Math.sqrt(game.costs.gravity);
+          game.player.vy = -compensatedJump;
+          game.player.jumpBufferTimer = 0;
+          game.player.coyoteTimer = 0;
+          game.costs.jumps++;
+          
+          // Form-specific penalties
+          if (game.player.form === 'circle') {
+            game.costs.gravity += 0.04;
+          } else if (game.player.form === 'triangle') {
+            game.costs.gravity += 0.06;
+            game.costs.horizontalControl *= 0.97;
+            
+            // Level 3: high jump penalty
+            if (level.doorLogic === 'highJumpPenalty' && compensatedJump > 11) {
+              game.costs.gravity += 0.15;
+            }
+          } else if (game.player.form === 'square') {
+            game.costs.gravity += 0.03;
+          }
+          
+          createParticles(game.player.x + 12, game.player.y + 24, WHITE, 8, 2);
+          
+          // Level 6: jump limit check
+          if (level.doorLogic === 'jumpLimit' && game.costs.jumps > level.maxJumps) {
+            // Door becomes unreachable
+          }
+          
+          // Level 7: ceiling lowers
+          if (level.doorLogic === 'ceiling') {
+            game.levelState.ceilingHeight += 5;
+          }
+          
+          // Level 2: door penalty
+          if (level.doorLogic === 'dashPenalty') {
+            level.door.x += 8;
+          }
+        }
+      }
+      
+      // Position update
+      game.player.x += game.player.vx;
+      game.player.y += game.player.vy;
+      
+      // Platform collision
+      game.player.grounded = false;
+      const tolerance = 6;
+      
+      level.platforms.forEach((plat, idx) => {
+        // Level 5: shrinking platforms
+        if (level.doorLogic === 'shrinkingPlatforms' && game.levelState.platformsShrunk < game.costs.jumps) {
+          plat.w = Math.max(60, plat.w - level.platformShrink);
+          game.levelState.platformsShrunk = game.costs.jumps;
+        }
+        
+        if (game.player.x + game.player.width > plat.x &&
+            game.player.x < plat.x + plat.w &&
+            game.player.y + game.player.height > plat.y - tolerance &&
+            game.player.y + game.player.height < plat.y + tolerance &&
+            game.player.vy >= 0) {
+          game.player.y = plat.y - game.player.height;
+          game.player.vy = 0;
+          game.player.grounded = true;
+        }
+      });
+      
+      // Moving platforms
+      level.movingPlatforms?.forEach(plat => {
+        plat.x += plat.speed * plat.dir;
+        if (plat.x <= plat.xMin || plat.x >= plat.xMax) plat.dir *= -1;
+        
+        if (game.player.x + game.player.width > plat.x &&
+            game.player.x < plat.x + plat.w &&
+            game.player.y + game.player.height > plat.y - tolerance &&
+            game.player.y + game.player.height < plat.y + tolerance &&
+            game.player.vy >= 0) {
+          game.player.y = plat.y - game.player.height;
+          game.player.vy = 0;
+          game.player.grounded = true;
+          game.player.x += plat.speed * plat.dir;
+        }
+      });
+      
+      // Spike collision
+      level.spikes.forEach(spike => {
+        const hitbox = { x: spike.x + 3, y: spike.y - 18, w: 14, h: 18 };
+        if (game.player.x + game.player.width > hitbox.x &&
+            game.player.x < hitbox.x + hitbox.w &&
+            game.player.y + game.player.height > hitbox.y &&
+            game.player.y < hitbox.y + hitbox.h) {
+          game.player.alive = false;
+          game.cameraShake = 15;
+          createParticles(game.player.x + 12, game.player.y + 12, RED, 25, 4);
+          
+          // Record ghost trail
+          game.ghostTrail = [];
+          setTimeout(() => loadLevel(game.currentLevel), 600);
+        }
+      });
+      
+      // Ceiling (Level 7)
+      if (level.doorLogic === 'ceiling' && game.levelState.ceilingHeight > 0) {
+        if (game.player.y < game.levelState.ceilingHeight) {
+          game.player.alive = false;
+          game.cameraShake = 15;
+          createParticles(game.player.x + 12, game.player.y + 12, RED, 25, 4);
+          setTimeout(() => loadLevel(game.currentLevel), 600);
+        }
+      }
+      
+      // Door collision
+      const doorOverlap = game.player.x + game.player.width > level.door.x &&
+                          game.player.x < level.door.x + level.door.w &&
+                          game.player.y + game.player.height > level.door.y &&
+                          game.player.y < level.door.y + level.door.h;
+      
+      if (doorOverlap && !game.levelState.complete) {
+        let canEnter = true;
+        
+        // Door logic checks
+        if (level.doorLogic === 'formSwitchRequired') {
+          canEnter = game.costs.formSwitches >= level.minFormSwitches;
+        } else if (level.doorLogic === 'jumpLimit') {
+          canEnter = game.costs.jumps <= level.maxJumps;
+        } else if (level.doorLogic === 'exact') {
+          canEnter = game.costs.jumps === level.exactJumps && 
+                     game.costs.formSwitches === level.exactFormSwitches;
+        }
+        
+        if (canEnter) {
+          game.levelState.complete = true;
+          game.screenFlash = 20;
+          createParticles(level.door.x + 20, level.door.y + 30, CYAN, 40, 5);
+        } else {
+          // Door rejection shake
+          game.cameraShake = 5;
+        }
+      }
+      
+      // Death by falling
+      if (game.player.y > 700) {
+        game.player.alive = false;
+        setTimeout(() => loadLevel(game.currentLevel), 400);
+      }
+    }
+    
+    // Draw loop
+    function draw() {
+      const shakeX = game.cameraShake * (Math.random() - 0.5) * 2;
+      const shakeY = game.cameraShake * (Math.random() - 0.5) * 2;
+      
+      ctx.save();
+      ctx.translate(shakeX, shakeY);
+      
+      ctx.fillStyle = BLACK;
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      
+      // Cold open
+      if (game.scene === 'coldOpen') {
+        const alpha = Math.min(game.coldOpenTimer / 80, 1) * Math.max(1 - (game.coldOpenTimer - 220) / 80, 0);
+        ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.font = '24px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Nothing you gain is free.', 400, 250);
+        ctx.fillText('You just choose what you lose.', 400, 290);
+        
+        if (game.coldOpenTimer > 240) {
+          ctx.fillStyle = 'rgba(100, 100, 100, 0.6)';
+          ctx.font = '14px monospace';
+          ctx.fillText('Press Enter', 400, 350);
+        }
+        ctx.restore();
+        return;
+      }
+      
+      // Menu
+      if (game.scene === 'menu') {
+        ctx.fillStyle = CYAN;
+        ctx.font = 'bold 42px monospace';
+        ctx.textAlign = 'center';
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = CYAN;
+        ctx.fillText('EVERY MOVE', 400, 200);
+        ctx.fillText('COSTS SOMETHING', 400, 250);
+        ctx.shadowBlur = 0;
+        
+        const items = ['START', 'CONTINUE', 'CREDITS'];
+        ctx.font = 'bold 24px monospace';
+        items.forEach((item, i) => {
+          const y = 340 + i * 50;
+          if (i === game.menuSelection) {
+            ctx.fillStyle = CYAN;
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = CYAN;
+            ctx.fillText('> ' + item + ' <', 400, y);
+            ctx.shadowBlur = 0;
+          } else {
+            ctx.fillStyle = GRAY;
+            ctx.fillText(item, 400, y);
+          }
+        });
+        
+        ctx.fillStyle = '#333333';
+        ctx.font = '12px monospace';
+        ctx.fillText('Arrow Keys / Enter', 400, 540);
+        ctx.restore();
+        return;
+      }
+      
+      // Credits
+      if (game.scene === 'credits') {
+        ctx.fillStyle = CYAN;
+        ctx.font = 'bold 32px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('EVERY MOVE COSTS SOMETHING', 400, 150);
+        
+        ctx.fillStyle = WHITE;
+        ctx.font = '18px monospace';
+        ctx.fillText('A game for BUET CSE FEST 2026', 400, 200);
+        ctx.fillText('Theme: Equivalent Exchange', 400, 230);
+        
+        ctx.fillStyle = GRAY;
+        ctx.font = 'bold 20px monospace';
+        ctx.fillText('BUILT BY', 400, 290);
+        
+        ctx.fillStyle = CYAN;
+        ctx.font = '18px monospace';
+        ctx.fillText('Nabidnur Abrar', 400, 330);
+        ctx.fillText('Shovon', 400, 360);
+        ctx.fillText('Shadin', 400, 390);
+        
+        ctx.fillStyle = '#333333';
+        ctx.font = '12px monospace';
+        ctx.fillText('Press ESC to return', 400, 520);
+        ctx.restore();
+        return;
+      }
+      
+      // Pause menu
+      if (game.scene === 'paused') {
+        drawGameplay();
+        
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        
+        ctx.fillStyle = CYAN;
+        ctx.font = 'bold 38px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('PAUSED', 400, 180);
+        
+        const items = ['RESUME', 'RESTART', 'MENU'];
+        ctx.font = 'bold 22px monospace';
+        items.forEach((item, i) => {
+          const y = 260 + i * 50;
+          if (i === game.pauseSelection) {
+            ctx.fillStyle = CYAN;
+            ctx.fillText('> ' + item + ' <', 400, y);
+          } else {
+            ctx.fillStyle = GRAY;
+            ctx.fillText(item, 400, y);
+          }
+        });
+        
+        ctx.restore();
+        return;
+      }
+      
+      // Level complete
+      if (game.scene === 'levelComplete') {
+        const level = levels[game.currentLevel];
+        const time = Math.floor((Date.now() - game.levelStartTime) / 1000);
+        
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        
+        ctx.fillStyle = CYAN;
+        ctx.font = 'bold 36px monospace';
+        ctx.textAlign = 'center';
+        ctx.shadowBlur = 18;
+        ctx.shadowColor = CYAN;
+        ctx.fillText('LEVEL COMPLETE', 400, 120);
+        ctx.shadowBlur = 0;
+        
+        ctx.fillStyle = WHITE;
+        ctx.font = 'bold 24px monospace';
+        ctx.fillText(level.name, 400, 170);
+        
+        ctx.fillStyle = GRAY;
+        ctx.font = '16px monospace';
+        ctx.fillText(`Time: ${time}s`, 400, 230);
+        ctx.fillText(`Jumps: ${game.costs.jumps}`, 400, 260);
+        ctx.fillText(`Dashes: ${Math.floor(game.costs.dashes / 3)}`, 400, 290);
+        ctx.fillText(`Form Switches: ${game.costs.formSwitches}`, 400, 320);
+        
+        const rating = game.costs.jumps <= 4 ? 'PERFECT' : 
+                      game.costs.jumps <= 8 ? 'EFFICIENT' : 'SURVIVED';
+        ctx.fillStyle = CYAN;
+        ctx.font = 'bold 28px monospace';
+        ctx.fillText(rating, 400, 390);
+        
+        if (game.currentLevel === levels.length - 1) {
+          ctx.fillStyle = WHITE;
+          ctx.font = '20px monospace';
+          ctx.fillText('"You already paid."', 400, 450);
+        }
+        
+        ctx.fillStyle = '#444444';
+        ctx.font = '14px monospace';
+        ctx.fillText('Press Enter to continue', 400, 540);
+        
+        ctx.restore();
+        return;
+      }
+      
+      // Gameplay
+      drawGameplay();
+      
+      ctx.restore();
+    }
+    
+    function drawGameplay() {
+      const level = levels[game.currentLevel];
+      
+      ctx.fillStyle = level.bgColor;
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      
+      // Ceiling (Level 7)
+      if (level.doorLogic === 'ceiling' && game.levelState.ceilingHeight > 0) {
+        ctx.fillStyle = '#222222';
+        ctx.fillRect(0, 0, CANVAS_WIDTH, game.levelState.ceilingHeight);
+        ctx.strokeStyle = RED;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, game.levelState.ceilingHeight);
+        ctx.lineTo(CANVAS_WIDTH, game.levelState.ceilingHeight);
+        ctx.stroke();
+      }
+      
+      // Platforms
+      ctx.fillStyle = GRAY;
+      level.platforms.forEach(p => {
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.fillRect(p.x, p.y, p.w, 2);
+        ctx.fillStyle = GRAY;
+      });
+      
+      // Moving platforms
+      ctx.fillStyle = CYAN_DIM;
+      level.movingPlatforms?.forEach(p => {
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.fillStyle = 'rgba(0, 255, 255, 0.3)';
+        ctx.fillRect(p.x, p.y, p.w, 2);
+        ctx.fillStyle = CYAN_DIM;
+      });
+      
+      // Spikes
+      ctx.fillStyle = RED;
+      ctx.shadowBlur = 8;
+      ctx.shadowColor = RED;
+      level.spikes.forEach(s => {
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(s.x + 20, s.y);
+        ctx.lineTo(s.x + 10, s.y - 20);
+        ctx.closePath();
+        ctx.fill();
+      });
+      ctx.shadowBlur = 0;
+      
+      // Door
+      drawDoor(level.door);
+      
+      // Player
+      if (game.player.alive) {
+        drawPlayer();
+      }
+      
+      // Particles
+      game.particles.forEach(p => p.draw(ctx));
+      
+      // UI
+      ctx.fillStyle = GRAY;
+      ctx.font = '13px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`${game.currentLevel + 1}. ${level.name}`, 10, 22);
+      
+      const formColor = game.player.form === 'circle' ? CYAN : 
+                        game.player.form === 'triangle' ? GOLD : GREEN;
+      ctx.fillStyle = formColor;
+      ctx.fillText(`${game.player.form.toUpperCase()}`, 10, 45);
+      
+      ctx.fillStyle = '#444444';
+      ctx.font = '11px monospace';
+      ctx.fillText(`G:${game.costs.gravity.toFixed(2)}x J:${game.costs.jumps}`, 10, 580);
+      
+      // Flash
+      if (game.screenFlash > 0) {
+        ctx.fillStyle = `rgba(255, 255, 255, ${game.screenFlash / 40})`;
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      }
+    }
+    
+    function drawDoor(door) {
+      const closing = game.levelState.doorClosing / 60;
+      const leftW = (door.w / 2) * (1 - closing);
+      const rightW = leftW;
+      
+      // Glow
+      if (closing < 1) {
+        const glow = ctx.createRadialGradient(
+          door.x + door.w/2, door.y + door.h/2, 0,
+          door.x + door.w/2, door.y + door.h/2, door.w * (1 + Math.sin(game.frameCount * 0.08) * 0.2)
+        );
+        glow.addColorStop(0, 'rgba(0, 255, 255, 0.6)');
+        glow.addColorStop(0.5, 'rgba(0, 255, 255, 0.2)');
+        glow.addColorStop(1, 'rgba(0, 255, 255, 0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(door.x - 15, door.y - 15, door.w + 30, door.h + 30);
+      }
+      
+      // Left panel
+      ctx.fillStyle = CYAN_DIM;
+      ctx.fillRect(door.x, door.y, leftW, door.h);
+      
+      // Right panel
+      ctx.fillRect(door.x + door.w - rightW, door.y, rightW, door.h);
+      
+      // Highlights
+      ctx.fillStyle = 'rgba(0, 255, 255, 0.4)';
+      ctx.fillRect(door.x, door.y, leftW, 3);
+      ctx.fillRect(door.x + door.w - rightW, door.y, rightW, 3);
+      
+      // Center beam
+      if (closing < 1) {
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = CYAN;
+        ctx.strokeStyle = CYAN;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(door.x + 1, door.y + 1, door.w - 2, door.h - 2);
+        ctx.shadowBlur = 0;
+      }
+    }
+    
+    function drawPlayer() {
+      ctx.save();
+      ctx.translate(game.player.x + 12, game.player.y + 12);
+      
+      const formColor = game.player.form === 'circle' ? CYAN :
+                        game.player.form === 'triangle' ? GOLD : GREEN;
+      
+      ctx.shadowBlur = 12;
+      ctx.shadowColor = formColor;
+      
+      if (game.player.form === 'circle') {
+        ctx.fillStyle = WHITE;
+        ctx.beginPath();
+        ctx.arc(0, 0, 12, 0, Math.PI * 2);
+        ctx.fill();
+        
+        if (Math.abs(game.player.vx) > 5) {
+          ctx.strokeStyle = `rgba(0, 255, 255, 0.6)`;
+          ctx.lineWidth = 2;
+          const dir = game.player.vx > 0 ? -1 : 1;
+          for (let i = 0; i < 3; i++) {
+            ctx.beginPath();
+            ctx.moveTo(dir * (15 + i * 5), -4 + i * 4);
+            ctx.lineTo(dir * (20 + i * 5), -4 + i * 4);
+            ctx.stroke();
+          }
+        }
+      } else if (game.player.form === 'triangle') {
+        ctx.fillStyle = WHITE;
+        ctx.beginPath();
+        ctx.moveTo(0, -12);
+        ctx.lineTo(-12, 12);
+        ctx.lineTo(12, 12);
+        ctx.closePath();
+        ctx.fill();
+        
+        if (!game.player.grounded && game.player.vy < 0) {
+          ctx.strokeStyle = `rgba(255, 215, 0, 0.5)`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(0, 0, 16, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      } else {
+        ctx.fillStyle = WHITE;
+        ctx.fillRect(-12, -12, 24, 24);
+        
+        if (game.player.grounded) {
+          ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
+          ctx.fillRect(-14, 12, 28, 3);
+        }
+      }
+      
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+    
+    // Game loop
+    function gameLoop() {
+      update();
+      draw();
+      animationFrameRef.current = requestAnimationFrame(gameLoop);
+    }
+    
+    animationFrameRef.current = requestAnimationFrame(gameLoop);
+    
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-black p-4">
+      <canvas
+        ref={canvasRef}
+        width={800}
+        height={600}
+        className="border-4 border-cyan-900 shadow-2xl shadow-cyan-500/20 rounded-lg"
+      />
+      
+      <div className="mt-6 bg-gray-900/90 border border-gray-800 rounded-lg p-5 max-w-3xl">
+        <div className="grid grid-cols-3 gap-6 text-sm font-mono">
+          <div className="text-gray-400">
+            <p className="text-cyan-400 font-bold mb-2">MOVEMENT</p>
+            <p>Arrow Keys / WASD</p>
+            <p>Space / W / ↑ - Jump</p>
+            <p>ESC - Pause</p>
+          </div>
+          <div className="text-gray-400">
+            <p className="text-cyan-400 font-bold mb-2">FORMS</p>
+            <p className="text-cyan-300">⚪ CIRCLE</p>
+            <p className="text-xs ml-2">Hold Shift to dash</p>
+            <p className="text-yellow-300 mt-1">▲ TRIANGLE</p>
+            <p className="text-xs ml-2">Higher jumps</p>
+            <p className="text-green-300 mt-1">⬛ SQUARE</p>
+            <p className="text-xs ml-2">Stable landings</p>
+          </div>
+          <div className="text-gray-400">
+            <p className="text-cyan-400 font-bold mb-2">THE EXCHANGE</p>
+            <p className="text-red-400">Speed → Gravity ↑</p>
+            <p className="text-red-400">Jump → Control ↓</p>
+            <p className="text-red-400">Power → Door flees</p>
+            <p className="text-xs mt-2 text-gray-500">Shift/Tab to switch form</p>
+          </div>
+        </div>
+        
+        <div className="mt-4 pt-4 border-t border-gray-800">
+          <p className="text-yellow-400 font-mono text-xs text-center font-bold">
+            ⚠️ Every ability costs something. Restraint is survival. ⚠️
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default EveryMoveCostsSomething;
