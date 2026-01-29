@@ -1,0 +1,260 @@
+Role:
+You are a senior indie game designer and technical mentor specializing in game jams, minimalist mechanics, and psychological platformers inspired by Level Devil and Geometry Dash.
+You think like a judge, not a hobbyist.
+
+Objective:
+Design and build a small, polished, single-screen 2D platformer for a game jam, strictly following the theme:
+“Equivalent Exchange”
+The game must communicate the theme through mechanics, not narrative exposition.
+The implementation language, framework, or engine is your choice, as long as the constraints below are respected.
+
+CORE CONSTRAINTS
+Platform: Browser-playable(PC version)
+Resolution: 800 × 600 (or equivalent aspect ratio, scaled if needed)
+Frame Rate Target: 60 FPS
+Total Levels: 8
+One screen per level
+Deterministic gameplay (no randomness)
+No external assets:
+No images
+No textures
+No sprite sheets
+Visuals must be procedurally drawn
+
+Visual Style:
+Black background
+White geometric shapes
+Subtle glow effect (shader or simulated glow acceptable)
+
+INPUT SCHEME (FIXED)
+Arrow Keys or A / D / W → Move
+Space → Jump
+Shift → Switch form
+Enter → Start / Confirm
+Tab → Pause menu
+
+Pause Menu must include:
+Resume
+Restart Level
+Exit to Main Menu
+
+UI REQUIREMENTS
+Minimalist text-based UI:
+Start Game
+How to Play (controls only)
+Credits
+Pause Menu
+
+No heavy animations.
+No decorative UI elements.
+Clarity over aesthetics.
+
+GAME IDENTITY-
+Game Title:
+Balance is a Lie
+
+Opening Line (must appear before gameplay starts)
+“Progress always removes something of equal value.”
+
+Player must press Enter to begin.
+
+CORE GAMEPLAY CONCEPT
+The game blends:
+Geometry Dash → clean geometry, precise movement, readability
+Level Devil → deceptive design, expectation traps, psychological pressure
+
+Difficulty escalation must be mental, not mechanical.
+
+PLAYER FORMS (FIXED — DO NOT ADD MORE)-
+The player can switch forms mid-level using Shift.
+Each form has a permanent cost per level once triggered.
+| Form     | Advantage                   | Cost (Equivalent Exchange)                                     |
+| -------- | --------------------------- | -------------------------------------------------------------- |
+| Circle   | Fast horizontal movement    | If idle for 3 seconds, the screen begins shrinking from behind |
+| Triangle | High vertical jump          | Gravity increases by **5% per jump**                           |
+| Square   | Stability & precise control | Movement speed gradually decreases over time                   |
+Form penalties persist until the level ends.
+
+LEVEL DESIGN RULES (NON-NEGOTIABLE)-
+One core idea per level
+No randomness
+No invisible deaths without visual logic
+Every death must be understandable in hindsight
+Traps must look fair, but behave unexpectedly
+Only one new concept introduced per level
+Escalate psychological pressure, not execution difficulty
+
+LEVEL STRUCTURE-
+LEVEL 1 — “Trust”
+
+Purpose: Teach controls + betray expectations lightly
+
+Layout
+Flat floor
+Door clearly visible at right
+No obstacles (or so it seems)
+
+Twist
+Nothing.
+Door works normally.
+
+Why it exists
+Build trust.
+Let the player relax.
+
+LEVEL 2 — “The Floor”
+
+Purpose: First betrayal
+
+Layout
+Same as Level 1
+Floor looks identical
+
+Twist
+When player reaches 70% of the screen, floor disappears behind them
+Player must keep moving forward
+
+LEVEL 3 — “Idle Cost” (Circle Punishment)
+
+Purpose: Introduce form-based punishment
+
+Layout
+Narrow horizontal corridor
+Door at far right
+
+Trigger
+If Circle is active and player stops for 3 seconds:
+Screen starts shrinking from the left
+If Triangle or Square → no shrink
+
+LEVEL 4 — “The Jump Lie” (Triangle Punishment)
+
+Purpose: Weaponize jumping
+
+Layout
+Series of small platforms
+Door on elevated ledge
+
+Twist
+Each jump:
+Gravity increases
+After ~4–5 jumps:
+Player slams into ground
+Misses platforms
+
+Solution
+Switch form mid-level
+Or use fewer jumps
+
+LEVEL 5 — “Stability Tax” (Square Punishment)
+
+Purpose: Show slow death without killing instantly
+
+Layout
+Moving spike wall from left
+Long corridor
+
+Twist
+Square’s speed reduction stacks
+Wall eventually catches player
+
+LEVEL 6 — “False Choice”
+
+Purpose: Psychological Level Devil moment
+
+Layout
+Two doors:
+Left: labeled “SAFE”
+Right: unlabeled
+
+Twist
+“SAFE” door instantly kills
+Unlabeled door advances
+
+LEVEL 7 — “Greed”
+
+Purpose: Punish overuse of advantage
+
+Layout
+Tall vertical shaft
+Door at top
+
+Twist
+Using Triangle jump repeatedly:
+Gravity ramps so high that
+Final jump becomes impossible
+
+Solution
+Switch to Circle mid-air
+Or plan jumps carefully
+
+LEVEL 8 — “The Exchange” (Finale)
+
+Purpose: Make the theme undeniable
+
+Layout
+Door visible but locked
+
+Text on screen:
+“What will you give?”
+
+Mechanics
+Player must:
+Lose speed
+Lose jump height
+Lose screen space
+
+Only after all three costs are triggered:
+Door unlocks
+Ending
+
+ENDING REQUIREMENTS-
+After Level 8:
+Fade to black
+
+Text appears: 
+"You have finished the game"
+"What did it cost?"
+
+
+Credit- 
+Team Zero One
+Nabidnur Abrar
+Shovon Das
+Fardin Eihosan Shadin
+
+“Thanks for playing”
+
+No long story. No exposition dump.
+
+TECHNICAL GUIDELINES (ENGINE-AGNOSTIC)
+Use clear separation of logic:
+Player state
+Physics
+Level triggers
+Form penalties
+Prefer readability over optimization
+Avoid unnecessary abstractions
+No feature creep
+Comment only where intent is unclear
+If uncertain:
+Ask one sharp clarifying question
+Never multiple questions at once
+
+STYLE & MINDSET-
+Minimalist
+Intentional
+Precise
+Controlled
+No fluff
+No “extra features”
+Build something small, complete, and memorable.
+
+SUCCESS CRITERIA-
+This project should:
+Be achievable in a first game jam
+Run smoothly in a browser
+Score high on Theme, Gameplay, and Design
+Make the player feel “Equivalent Exchange” without explaining it
+
+
